@@ -1,0 +1,14 @@
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api-gateway
+    env_file: .env
+    ports:
+      - "8000:8000"
+    networks: [docker-network]
+    # depends_on: [audio-engine, agent-orchestrator]  # à activer avec les services 3 et 4
+
+networks:
+  docker-network:
+    driver: bridge
