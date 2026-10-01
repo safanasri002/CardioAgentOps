@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardioAgent-Ops — Testeur API Gateway</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171d2b;
+    --border: #2a3344;
+    --text: #e6e9ef;
+    --muted: #8b95a7;
+    --accent: #e85d75;
+    --ok: #3ddc97;
+    --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  p.subtitle { color: var(--muted); margin-top: 0; font-size: 0.9rem; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 16px;
+  }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    background: #0f1420;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-bottom: 14px;
+  }
+  input[type="file"] { color: var(--text); margin-bottom: 14px; display: block; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status { margin-top: 14px; font-size: 0.9rem; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  pre {
+    background: #0b0f18;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .meta { color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🫀 CardioAgent-Ops — Testeur API Gateway</h1>
+  <p class="subtitle">Envoie un fichier .wav à <code>/analyze_pcg</code> (Service 5) et affiche la réponse ou l'erreur.</p>
+
+  <div class="panel">
+    <label for="base-url">URL de l'API Gateway</label>
+    <input type="text" id="base-url" value="http://localhost:8000">
+
+    <label for="wav-file">Fichier audio (.wav)</label>
+    <input type="file" id="wav-file" accept=".wav,audio/wav">
+
+    <button id="submit-btn">Envoyer à /analyze_pcg</button>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="panel" id="result-panel" style="display:none;">
+    <strong>Réponse</strong>
+    <pre id="result"></pre>
+    <div class="meta" id="meta"></div>
+  </div>
+</main>
+
+<script>
+const baseUrlInput = document.getElementById('base-url');
+const fileInput = document.getElementById('wav-file');
+const submitBtn = document.getElementById('submit-btn');
+const statusEl = document.getElementById('status');
+const resultPanel = document.getElementById('result-panel');
+const resultEl = document.getElementById('result');
+const metaEl = document.getElementById('meta');
+
+submitBtn.addEventListener('click', async () => {
+  const file = fileInput.files[0];
+  if (!file) {
+    statusEl.textContent = 'Choisissez d\'abord un fichier .wav.';
+    statusEl.className = 'status err';
+    return;
+  }
+
+  const baseUrl = baseUrlInput.value.trim().replace(/\/$/, '');
+  const form = new FormData();
+  form.append('file', file, file.name);
+
+  submitBtn.disabled = true;
+  statusEl.textContent = 'Envoi en cours...';
+  statusEl.className = 'status';
+  resultPanel.style.display = 'none';
+
+  const requestId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+  const t0 = performance.now();
+
+  try {
+    const resp = await fetch(`${baseUrl}/analyze_pcg`, {
+      method: 'POST',
+      body: form,
+      headers: { 'X-Request-ID': requestId },
+    });
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+    const body = await resp.json().catch(() => ({ error: 'reponse_non_json' }));
+
+    resultPanel.style.display = 'block';
+    resultEl.textContent = JSON.stringify(body, null, 2);
+    metaEl.textContent = `HTTP ${resp.status} · ${elapsed}s · X-Request-ID: ${requestId}`;
+
+    if (resp.ok) {
+      statusEl.textContent = `Succès (HTTP ${resp.status}).`;
+      statusEl.className = 'status ok';
+    } else {
+      const service = body.service ? ` [service: ${body.service}]` : '';
+      statusEl.textContent = `Échec (HTTP ${resp.status})${service}.`;
+      statusEl.className = 'status err';
+    }
+  } catch (err) {
+    statusEl.textContent = `Erreur réseau : ${err.message}. ` +
+      `Vérifiez que l'api-gateway tourne sur ${baseUrl} et que CORS est activé.`;
+    statusEl.className = 'status err';
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

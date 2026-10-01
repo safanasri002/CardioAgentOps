@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     orchestrator_path: str = "/analyze"
     request_timeout_s: float = 30.0
     max_upload_mb: int = 10
+    # Permissif pour le développement local (page de test HTML servie en file://
+    # ou http://localhost:*). À restreindre à l'URL du vrai frontend en production.
+    cors_allow_origins: list[str] = ["*"]
 
 
 @lru_cache

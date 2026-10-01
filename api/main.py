@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, File, Header, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.clients import call_audio_engine, call_orchestrator
 from api.config import Settings, get_settings
@@ -26,6 +27,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="CardioAgent-Ops API Gateway", version="1.0.0", lifespan=lifespan)
 app.add_exception_handler(UpstreamError, upstream_error_handler)
 app.add_exception_handler(InvalidUpload, invalid_upload_handler)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_allow_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
