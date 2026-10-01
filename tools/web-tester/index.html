@@ -3,155 +3,536 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CardioAgent-Ops — Testeur API Gateway</title>
+<title>CardioAgent-Ops — Console de test</title>
 <style>
   :root {
-    --bg: #0f1420;
-    --panel: #171d2b;
-    --border: #2a3344;
+    --bg: #0b0f18;
+    --panel: #121826;
+    --panel-2: #171f30;
+    --border: #262f42;
     --text: #e6e9ef;
     --muted: #8b95a7;
     --accent: #e85d75;
+    --accent-dim: #e85d7522;
     --ok: #3ddc97;
+    --ok-dim: #3ddc9722;
     --err: #ff6b6b;
+    --err-dim: #ff6b6b22;
+    --warn: #f5b85b;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
-    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding: 24px;
   }
-  main { max-width: 720px; margin: 0 auto; }
-  h1 { font-size: 1.4rem; margin-bottom: 4px; }
-  p.subtitle { color: var(--muted); margin-top: 0; font-size: 0.9rem; }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px;
-    margin-top: 16px;
+  .shell { max-width: 1040px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
   }
-  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
-  input[type="text"], input[type="number"] {
-    width: 100%;
-    background: #0f1420;
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 8px 10px;
-    border-radius: 6px;
-    font-size: 0.9rem;
+  header .title { display: flex; align-items: center; gap: 10px; }
+  header .title .logo { font-size: 1.8rem; }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 0.82rem; }
+
+  .health {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 14px; font-size: 0.8rem; color: var(--muted);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); transition: background .2s; }
+  .dot.up { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dot.down { background: var(--err); box-shadow: 0 0 6px var(--err); }
+
+  .grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 18px; align-items: start; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .card + .card { margin-top: 18px; }
+  .card h2 { font-size: 0.95rem; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .badge-step {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2);
+    border: 1px solid var(--border); display: inline-flex; align-items: center;
+    justify-content: center; font-size: 0.7rem; color: var(--muted);
+  }
+
+  label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; }
+  input[type="text"] {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 7px; font-size: 0.85rem; margin-bottom: 4px;
+  }
+  .hint { font-size: 0.72rem; color: var(--muted); margin: 4px 0 14px; }
+
+  .dropzone {
+    border: 1.5px dashed var(--border); border-radius: 10px; padding: 26px 16px;
+    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
     margin-bottom: 14px;
   }
-  input[type="file"] { color: var(--text); margin-bottom: 14px; display: block; }
-  button {
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 10px 18px;
-    border-radius: 6px;
-    font-size: 0.95rem;
-    cursor: pointer;
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: var(--accent-dim); }
+  .dropzone .icon { font-size: 1.6rem; margin-bottom: 6px; }
+  .dropzone .main-txt { font-size: 0.88rem; }
+  .dropzone .sub-txt { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+  input[type="file"] { display: none; }
+
+  .file-chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 14px; font-size: 0.82rem;
   }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .status { margin-top: 14px; font-size: 0.9rem; }
-  .status.ok { color: var(--ok); }
-  .status.err { color: var(--err); }
+  .file-chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip .size { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+  .file-chip button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; }
+
+  audio { width: 100%; margin-bottom: 14px; height: 34px; }
+
+  button.primary {
+    background: var(--accent); color: #fff; border: none; width: 100%;
+    padding: 12px 18px; border-radius: 8px; font-size: 0.92rem; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #ffffff55; border-top-color: #fff; animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .steps { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .step {
+    display: flex; align-items: center; gap: 10px; font-size: 0.8rem; color: var(--muted);
+    padding: 7px 10px; border-radius: 7px; border: 1px solid transparent;
+  }
+  .step .marker {
+    width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+    border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem;
+  }
+  .step.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
+  .step.active .marker { border-color: var(--accent); }
+  .step.ok .marker { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
+  .step.ok { color: var(--text); }
+  .step.fail .marker { background: var(--err-dim); border-color: var(--err); color: var(--err); }
+  .step.fail { color: var(--err); border-color: var(--err); background: var(--err-dim); }
+
+  .banner {
+    border-radius: 9px; padding: 12px 14px; font-size: 0.85rem; margin-bottom: 14px;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .banner.err { background: var(--err-dim); border: 1px solid var(--err); color: #ffd4d4; }
+  .banner.ok { background: var(--ok-dim); border: 1px solid var(--ok); color: #c7ffe9; }
+  .banner .icon { font-size: 1.1rem; }
+  .banner .msg b { display: block; margin-bottom: 2px; }
+  .banner .msg span { color: var(--muted); font-size: 0.78rem; }
+
+  .result-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 30px 10px; }
+
+  .diag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+  .diag-badge {
+    font-size: 0.78rem; font-weight: 700; padding: 5px 12px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .diag-badge.normal { background: var(--ok-dim); color: var(--ok); border: 1px solid var(--ok); }
+  .diag-badge.abnormal { background: var(--err-dim); color: var(--err); border: 1px solid var(--err); }
+  .diag-badge.unknown { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+
+  .diag-text { font-size: 0.95rem; margin-bottom: 4px; }
+  .diag-reco { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; line-height: 1.5; }
+
+  .bar-row { margin-bottom: 10px; }
+  .bar-row .lbl { display: flex; justify-content: space-between; font-size: 0.76rem; color: var(--muted); margin-bottom: 4px; }
+  .bar-track { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; background: var(--accent); }
+  .bar-fill.ok { background: var(--ok); }
+
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .source-chip {
+    font-size: 0.72rem; background: var(--panel-2); border: 1px solid var(--border);
+    padding: 4px 9px; border-radius: 999px; color: var(--muted);
+  }
+
+  details { margin-top: 16px; }
+  summary { cursor: pointer; font-size: 0.78rem; color: var(--muted); }
   pre {
-    background: #0b0f18;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px;
-    overflow-x: auto;
-    font-size: 0.82rem;
-    white-space: pre-wrap;
-    word-break: break-word;
+    background: #070a11; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; overflow-x: auto; font-size: 0.75rem; white-space: pre-wrap; word-break: break-word;
+    margin-top: 8px;
   }
-  .meta { color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
+
+  .history-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: 0.78rem; cursor: pointer;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item:hover { background: var(--panel-2); }
+  .history-item .hname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+  .history-item .htime { color: var(--muted); font-size: 0.7rem; }
+  .dot-sm { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .dot-sm.ok { background: var(--ok); }
+  .dot-sm.err { background: var(--err); }
+  .empty-hist { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 14px; }
 </style>
 </head>
 <body>
-<main>
-  <h1>🫀 CardioAgent-Ops — Testeur API Gateway</h1>
-  <p class="subtitle">Envoie un fichier .wav à <code>/analyze_pcg</code> (Service 5) et affiche la réponse ou l'erreur.</p>
+<div class="shell">
 
-  <div class="panel">
-    <label for="base-url">URL de l'API Gateway</label>
-    <input type="text" id="base-url" value="http://localhost:8000">
+  <header>
+    <div class="title">
+      <span class="logo">🫀</span>
+      <div>
+        <h1>CardioAgent-Ops — Console de test</h1>
+        <p>Service 5 · api-gateway — <code>POST /analyze_pcg</code></p>
+      </div>
+    </div>
+    <div class="health">
+      <span class="dot" id="health-dot"></span>
+      <span id="health-txt">Vérification...</span>
+    </div>
+  </header>
 
-    <label for="wav-file">Fichier audio (.wav)</label>
-    <input type="file" id="wav-file" accept=".wav,audio/wav">
+  <div class="grid">
+    <!-- Colonne gauche : envoi -->
+    <div>
+      <div class="card">
+        <h2><span class="badge-step">1</span> Connexion</h2>
+        <label for="base-url">URL de l'API Gateway</label>
+        <input type="text" id="base-url" value="http://localhost:8000">
+        <p class="hint">Service lancé en local avec <code>uvicorn api.main:app --port 8000</code>.</p>
+      </div>
 
-    <button id="submit-btn">Envoyer à /analyze_pcg</button>
-    <div id="status" class="status"></div>
+      <div class="card">
+        <h2><span class="badge-step">2</span> Fichier audio (.wav)</h2>
+
+        <div class="dropzone" id="dropzone">
+          <div class="icon">📁</div>
+          <div class="main-txt">Glissez un fichier .wav ici, ou cliquez pour choisir</div>
+          <div class="sub-txt">Signal PCG (bruits cardiaques) — max 10 Mo par défaut</div>
+        </div>
+        <input type="file" id="wav-file" accept=".wav,audio/wav">
+
+        <div class="file-chip" id="file-chip" style="display:none;">
+          <span class="name" id="file-name"></span>
+          <span class="size" id="file-size"></span>
+          <button id="file-clear" title="Retirer">✕</button>
+        </div>
+
+        <audio id="audio-preview" controls style="display:none;"></audio>
+
+        <button class="primary" id="submit-btn" disabled>
+          <span id="btn-label">Choisissez d'abord un fichier</span>
+        </button>
+
+        <div class="steps" id="steps" style="display:none;">
+          <div class="step" id="step-upload"><span class="marker">1</span> Validation &amp; envoi</div>
+          <div class="step" id="step-audio"><span class="marker">2</span> Service 3 · audio-engine</div>
+          <div class="step" id="step-orch"><span class="marker">3</span> Service 4 · agent-orchestrator</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Colonne droite : résultat + historique -->
+    <div>
+      <div class="card">
+        <h2>Résultat</h2>
+        <div id="result-zone">
+          <div class="result-empty">Aucune analyse pour l'instant.<br>Envoyez un fichier .wav pour voir le rapport ici.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Historique de session (<span id="hist-count">0</span>)</h2>
+        <div id="history-list">
+          <div class="empty-hist">Les analyses envoyées apparaîtront ici.</div>
+        </div>
+      </div>
+    </div>
   </div>
-
-  <div class="panel" id="result-panel" style="display:none;">
-    <strong>Réponse</strong>
-    <pre id="result"></pre>
-    <div class="meta" id="meta"></div>
-  </div>
-</main>
+</div>
 
 <script>
-const baseUrlInput = document.getElementById('base-url');
-const fileInput = document.getElementById('wav-file');
-const submitBtn = document.getElementById('submit-btn');
-const statusEl = document.getElementById('status');
-const resultPanel = document.getElementById('result-panel');
-const resultEl = document.getElementById('result');
-const metaEl = document.getElementById('meta');
+const $ = (id) => document.getElementById(id);
+const baseUrlInput = $('base-url');
+const dropzone = $('dropzone');
+const fileInput = $('wav-file');
+const fileChip = $('file-chip');
+const fileNameEl = $('file-name');
+const fileSizeEl = $('file-size');
+const fileClearBtn = $('file-clear');
+const audioPreview = $('audio-preview');
+const submitBtn = $('submit-btn');
+const btnLabel = $('btn-label');
+const stepsEl = $('steps');
+const resultZone = $('result-zone');
+const historyList = $('history-list');
+const histCount = $('hist-count');
+const healthDot = $('health-dot');
+const healthTxt = $('health-txt');
 
-submitBtn.addEventListener('click', async () => {
-  const file = fileInput.files[0];
-  if (!file) {
-    statusEl.textContent = 'Choisissez d\'abord un fichier .wav.';
-    statusEl.className = 'status err';
-    return;
+let selectedFile = null;
+let history = [];
+
+// ---------- Santé du gateway ----------
+async function pingHealth() {
+  const base = baseUrlInput.value.trim().replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2500) });
+    if (resp.ok) {
+      healthDot.className = 'dot up';
+      healthTxt.textContent = 'api-gateway en ligne';
+    } else {
+      healthDot.className = 'dot down';
+      healthTxt.textContent = `api-gateway répond ${resp.status}`;
+    }
+  } catch {
+    healthDot.className = 'dot down';
+    healthTxt.textContent = 'api-gateway injoignable';
   }
+}
+pingHealth();
+setInterval(pingHealth, 6000);
+baseUrlInput.addEventListener('change', pingHealth);
 
-  const baseUrl = baseUrlInput.value.trim().replace(/\/$/, '');
+// ---------- Sélection de fichier ----------
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) setFile(fileInput.files[0]);
+});
+fileClearBtn.addEventListener('click', (e) => { e.stopPropagation(); clearFile(); });
+
+function setFile(file) {
+  selectedFile = file;
+  fileNameEl.textContent = file.name;
+  fileSizeEl.textContent = `${(file.size / 1024).toFixed(1)} Ko`;
+  fileChip.style.display = 'flex';
+
+  const isWav = file.name.toLowerCase().endsWith('.wav');
+  audioPreview.style.display = 'block';
+  audioPreview.src = URL.createObjectURL(file);
+
+  submitBtn.disabled = false;
+  btnLabel.textContent = 'Envoyer à /analyze_pcg';
+
+  if (!isWav) {
+    btnLabel.textContent = "Attention : l'extension n'est pas .wav";
+  }
+}
+
+function clearFile() {
+  selectedFile = null;
+  fileInput.value = '';
+  fileChip.style.display = 'none';
+  audioPreview.style.display = 'none';
+  audioPreview.src = '';
+  submitBtn.disabled = true;
+  btnLabel.textContent = "Choisissez d'abord un fichier";
+}
+
+// ---------- Étapes visuelles ----------
+function resetSteps() {
+  stepsEl.style.display = 'flex';
+  ['step-upload', 'step-audio', 'step-orch'].forEach((id) => {
+    const el = $(id);
+    el.className = 'step';
+    el.querySelector('.marker').textContent = { 'step-upload': '1', 'step-audio': '2', 'step-orch': '3' }[id];
+  });
+}
+function markStep(id, state) {
+  const el = $(id);
+  el.className = `step ${state}`;
+  if (state === 'ok') el.querySelector('.marker').textContent = '✓';
+  if (state === 'fail') el.querySelector('.marker').textContent = '✕';
+}
+
+// ---------- Envoi ----------
+submitBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  const base = baseUrlInput.value.trim().replace(/\/$/, '');
   const form = new FormData();
-  form.append('file', file, file.name);
+  form.append('file', selectedFile, selectedFile.name);
 
   submitBtn.disabled = true;
-  statusEl.textContent = 'Envoi en cours...';
-  statusEl.className = 'status';
-  resultPanel.style.display = 'none';
+  btnLabel.innerHTML = '<span class="spinner"></span> Analyse en cours...';
+  resetSteps();
+  markStep('step-upload', 'active');
+  markStep('step-audio', 'active');
 
   const requestId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
   const t0 = performance.now();
+  const entry = { filename: selectedFile.name, time: new Date(), ok: false, status: null, body: null };
 
   try {
-    const resp = await fetch(`${baseUrl}/analyze_pcg`, {
-      method: 'POST',
-      body: form,
-      headers: { 'X-Request-ID': requestId },
+    const resp = await fetch(`${base}/analyze_pcg`, {
+      method: 'POST', body: form, headers: { 'X-Request-ID': requestId },
     });
     const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
     const body = await resp.json().catch(() => ({ error: 'reponse_non_json' }));
 
-    resultPanel.style.display = 'block';
-    resultEl.textContent = JSON.stringify(body, null, 2);
-    metaEl.textContent = `HTTP ${resp.status} · ${elapsed}s · X-Request-ID: ${requestId}`;
+    entry.status = resp.status;
+    entry.body = body;
+    entry.ok = resp.ok;
+    entry.elapsed = elapsed;
+    entry.requestId = requestId;
 
     if (resp.ok) {
-      statusEl.textContent = `Succès (HTTP ${resp.status}).`;
-      statusEl.className = 'status ok';
+      markStep('step-upload', 'ok');
+      markStep('step-audio', 'ok');
+      markStep('step-orch', 'ok');
+      renderSuccess(body, entry);
+    } else if (resp.status === 422 || resp.status === 413) {
+      markStep('step-upload', 'fail');
+      markStep('step-audio', '');
+      renderClientError(body, resp.status, entry);
+    } else if (body.service === 'audio-engine') {
+      markStep('step-upload', 'ok');
+      markStep('step-audio', 'fail');
+      markStep('step-orch', '');
+      renderUpstreamError(body, resp.status, entry);
     } else {
-      const service = body.service ? ` [service: ${body.service}]` : '';
-      statusEl.textContent = `Échec (HTTP ${resp.status})${service}.`;
-      statusEl.className = 'status err';
+      markStep('step-upload', 'ok');
+      markStep('step-audio', 'ok');
+      markStep('step-orch', 'fail');
+      renderUpstreamError(body, resp.status, entry);
     }
   } catch (err) {
-    statusEl.textContent = `Erreur réseau : ${err.message}. ` +
-      `Vérifiez que l'api-gateway tourne sur ${baseUrl} et que CORS est activé.`;
-    statusEl.className = 'status err';
+    entry.status = 0;
+    entry.body = { error: 'network', detail: err.message };
+    markStep('step-upload', 'fail');
+    renderNetworkError(err, base);
   } finally {
     submitBtn.disabled = false;
+    btnLabel.textContent = 'Envoyer à /analyze_pcg';
+    history.unshift(entry);
+    renderHistory();
   }
 });
+
+// ---------- Rendu résultat ----------
+function renderSuccess(body, entry) {
+  const predicted = (body.predicted_class || '').toLowerCase();
+  const badgeClass = predicted === 'normal' ? 'normal' : predicted === 'abnormal' ? 'abnormal' : 'unknown';
+  const badgeLabel = predicted === 'normal' ? 'Normal' : predicted === 'abnormal' ? 'Anormal' : (predicted || 'Indéterminé');
+
+  const confidence = typeof body.confidence === 'number' ? body.confidence : null;
+  const probs = body.probabilities && typeof body.probabilities === 'object' ? body.probabilities : null;
+
+  let html = `
+    <div class="banner ok">
+      <span class="icon">✅</span>
+      <div class="msg"><b>Rapport reçu</b><span>HTTP ${entry.status} · ${entry.elapsed}s · request-id ${entry.requestId}</span></div>
+    </div>
+    <div class="diag-head">
+      <span class="diag-badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>
+      ${confidence !== null ? `<span class="hint" style="margin:0;">confiance ${(confidence * 100).toFixed(0)}%</span>` : ''}
+    </div>`;
+
+  if (body.diagnosis) html += `<div class="diag-text">${escapeHtml(body.diagnosis)}</div>`;
+  if (body.recommendation) html += `<div class="diag-reco">${escapeHtml(body.recommendation)}</div>`;
+
+  if (probs) {
+    html += '<div style="margin-top:14px;">';
+    for (const [label, value] of Object.entries(probs)) {
+      const pct = Math.max(0, Math.min(1, value)) * 100;
+      const isNormal = label.toLowerCase() === 'normal';
+      html += `
+        <div class="bar-row">
+          <div class="lbl"><span>${escapeHtml(label)}</span><span>${pct.toFixed(0)}%</span></div>
+          <div class="bar-track"><div class="bar-fill ${isNormal ? 'ok' : ''}" style="width:${pct}%"></div></div>
+        </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (Array.isArray(body.sources) && body.sources.length) {
+    html += '<div class="sources">' + body.sources.map(s => `<span class="source-chip">${escapeHtml(String(s))}</span>`).join('') + '</div>';
+  }
+
+  html += renderRawDetails(body);
+  resultZone.innerHTML = html;
+}
+
+function renderClientError(body, status, entry) {
+  resultZone.innerHTML = `
+    <div class="banner err">
+      <span class="icon">⚠️</span>
+      <div class="msg">
+        <b>Fichier rejeté (HTTP ${status})</b>
+        <span>${escapeHtml(body.detail || 'Validation échouée côté api-gateway.')}</span>
+      </div>
+    </div>
+    ${renderRawDetails(body)}`;
+}
+
+function renderUpstreamError(body, status, entry) {
+  const service = body.service || 'service inconnu';
+  resultZone.innerHTML = `
+    <div class="banner err">
+      <span class="icon">🔌</span>
+      <div class="msg">
+        <b>Échec en aval — ${escapeHtml(service)} (HTTP ${status})</b>
+        <span>${escapeHtml(body.detail || 'Le service distant n\'a pas répondu correctement.')}</span>
+      </div>
+    </div>
+    ${renderRawDetails(body)}`;
+}
+
+function renderNetworkError(err, base) {
+  resultZone.innerHTML = `
+    <div class="banner err">
+      <span class="icon">🚫</span>
+      <div class="msg">
+        <b>Erreur réseau</b>
+        <span>${escapeHtml(err.message)} — vérifiez que l'api-gateway tourne sur ${escapeHtml(base)}.</span>
+      </div>
+    </div>`;
+}
+
+function renderRawDetails(body) {
+  return `<details><summary>Voir le JSON brut</summary><pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre></details>`;
+}
+
+// ---------- Historique ----------
+function renderHistory() {
+  histCount.textContent = history.length;
+  if (!history.length) {
+    historyList.innerHTML = '<div class="empty-hist">Les analyses envoyées apparaîtront ici.</div>';
+    return;
+  }
+  historyList.innerHTML = history.slice(0, 20).map((h, i) => `
+    <div class="history-item" data-idx="${i}">
+      <span class="dot-sm ${h.ok ? 'ok' : 'err'}"></span>
+      <span class="hname">${escapeHtml(h.filename)}</span>
+      <span class="htime">${h.time.toLocaleTimeString()} · ${h.status ?? '—'}</span>
+    </div>`).join('');
+
+  historyList.querySelectorAll('.history-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const h = history[Number(el.dataset.idx)];
+      if (h.ok) renderSuccess(h.body, h);
+      else if (h.status === 422 || h.status === 413) renderClientError(h.body, h.status, h);
+      else if (h.status === 0) renderNetworkError({ message: h.body.detail }, baseUrlInput.value);
+      else renderUpstreamError(h.body, h.status, h);
+    });
+  });
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
 </script>
 </body>
 </html>
