@@ -64,10 +64,11 @@
   }
 
   label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; }
-  input[type="text"] {
+  input[type="text"], textarea {
     width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
     padding: 8px 10px; border-radius: 7px; font-size: 0.85rem; margin-bottom: 4px;
   }
+  textarea { font-family: inherit; resize: vertical; margin-bottom: 14px; }
   .hint { font-size: 0.72rem; color: var(--muted); margin: 4px 0 14px; }
 
   .dropzone {
@@ -177,6 +178,30 @@
   .dot-sm.ok { background: var(--ok); }
   .dot-sm.err { background: var(--err); }
   .empty-hist { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 14px; }
+
+  .toggle {
+    display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text);
+    margin-bottom: 14px; cursor: pointer;
+  }
+  .toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
+  .toggle code { color: var(--muted); font-size: 0.72rem; }
+
+  .agents { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .agent { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+  .agent .st { width: 16px; text-align: center; }
+  .agent.running { color: var(--text); }
+  .agent.done { color: var(--ok); }
+  .agent .extra { font-size: 0.72rem; color: var(--muted); }
+  .stream-text {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-size: 0.88rem; line-height: 1.55; min-height: 60px; white-space: pre-wrap;
+  }
+  .stream-text .caret {
+    display: inline-block; width: 7px; height: 1em; background: var(--accent);
+    vertical-align: text-bottom; animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .stream-meta { font-size: 0.72rem; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -187,7 +212,7 @@
       <span class="logo">🫀</span>
       <div>
         <h1>CardioAgent-Ops — Console de test</h1>
-        <p>Service 5 · api-gateway — <code>POST /analyze_pcg</code></p>
+        <p>Service 5 · api-gateway — <code>POST /analyze_pcg</code> · <code>POST /analyze_pcg/stream</code></p>
       </div>
     </div>
     <div class="health">
@@ -224,14 +249,22 @@
 
         <audio id="audio-preview" controls style="display:none;"></audio>
 
+        <label for="prompt">Question au cardiologue (optionnel)</label>
+        <textarea id="prompt" rows="3" placeholder="Ex : Y a-t-il un souffle systolique ?"></textarea>
+
+        <label class="toggle">
+          <input type="checkbox" id="stream-mode" checked>
+          Réponse en streaming (SSE) <code>/analyze_pcg/stream</code>
+        </label>
+
         <button class="primary" id="submit-btn" disabled>
           <span id="btn-label">Choisissez d'abord un fichier</span>
         </button>
 
         <div class="steps" id="steps" style="display:none;">
-          <div class="step" id="step-upload"><span class="marker">1</span> Validation &amp; envoi</div>
-          <div class="step" id="step-audio"><span class="marker">2</span> Service 3 · audio-engine</div>
-          <div class="step" id="step-orch"><span class="marker">3</span> Service 4 · agent-orchestrator</div>
+          <div class="step" id="step-upload"><span class="marker">1</span> Service 5 · validation &amp; guardrails</div>
+          <div class="step" id="step-orch"><span class="marker">2</span> Service 4 · agent-orchestrator</div>
+          <div class="step" id="step-audio"><span class="marker">3</span> Service 3 · audio-engine (via AudioAgent)</div>
         </div>
       </div>
     </div>
@@ -323,7 +356,7 @@ function setFile(file) {
   audioPreview.src = URL.createObjectURL(file);
 
   submitBtn.disabled = false;
-  btnLabel.textContent = 'Envoyer à /analyze_pcg';
+  btnLabel.textContent = sendLabel();
 
   if (!isWav) {
     btnLabel.textContent = "Attention : l'extension n'est pas .wav";
@@ -343,10 +376,10 @@ function clearFile() {
 // ---------- Étapes visuelles ----------
 function resetSteps() {
   stepsEl.style.display = 'flex';
-  ['step-upload', 'step-audio', 'step-orch'].forEach((id) => {
+  ['step-upload', 'step-orch', 'step-audio'].forEach((id) => {
     const el = $(id);
     el.className = 'step';
-    el.querySelector('.marker').textContent = { 'step-upload': '1', 'step-audio': '2', 'step-orch': '3' }[id];
+    el.querySelector('.marker').textContent = { 'step-upload': '1', 'step-orch': '2', 'step-audio': '3' }[id];
   });
 }
 function markStep(id, state) {
@@ -357,54 +390,75 @@ function markStep(id, state) {
 }
 
 // ---------- Envoi ----------
+const streamToggle = $('stream-mode');
+const endpoint = () => (streamToggle.checked ? '/analyze_pcg/stream' : '/analyze_pcg');
+const sendLabel = () => `Envoyer à ${endpoint()}`;
+streamToggle.addEventListener('change', () => { if (selectedFile) btnLabel.textContent = sendLabel(); });
+
+// Erreur HTTP renvoyée avant tout streaming (même format JSON pour les deux routes)
+function handleHttpError(status, body, entry) {
+  if (status === 422 || status === 413) {
+    markStep('step-upload', 'fail');
+    markStep('step-orch', '');
+    renderClientError(body, status, entry);
+  } else if ((body.detail || '').includes('audio-engine')) {
+    // S4 a répondu, mais son AudioAgent n'a pas pu joindre S3
+    markStep('step-upload', 'ok');
+    markStep('step-orch', 'ok');
+    markStep('step-audio', 'fail');
+    renderUpstreamError(body, status, entry);
+  } else {
+    markStep('step-upload', 'ok');
+    markStep('step-orch', 'fail');
+    markStep('step-audio', '');
+    renderUpstreamError(body, status, entry);
+  }
+}
+
 submitBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
   const base = baseUrlInput.value.trim().replace(/\/$/, '');
   const form = new FormData();
   form.append('file', selectedFile, selectedFile.name);
+  const prompt = document.getElementById('prompt').value.trim();
+  if (prompt) form.append('prompt', prompt);
+  const streaming = streamToggle.checked;
 
   submitBtn.disabled = true;
   btnLabel.innerHTML = '<span class="spinner"></span> Analyse en cours...';
   resetSteps();
   markStep('step-upload', 'active');
-  markStep('step-audio', 'active');
+  markStep('step-orch', 'active');
 
   const requestId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
   const t0 = performance.now();
-  const entry = { filename: selectedFile.name, time: new Date(), ok: false, status: null, body: null };
+  const entry = {
+    filename: selectedFile.name, time: new Date(), ok: false, status: null, body: null,
+    requestId, streaming,
+  };
 
   try {
-    const resp = await fetch(`${base}/analyze_pcg`, {
+    const resp = await fetch(`${base}${endpoint()}`, {
       method: 'POST', body: form, headers: { 'X-Request-ID': requestId },
     });
-    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
-    const body = await resp.json().catch(() => ({ error: 'reponse_non_json' }));
-
     entry.status = resp.status;
-    entry.body = body;
-    entry.ok = resp.ok;
-    entry.elapsed = elapsed;
-    entry.requestId = requestId;
 
-    if (resp.ok) {
-      markStep('step-upload', 'ok');
-      markStep('step-audio', 'ok');
-      markStep('step-orch', 'ok');
-      renderSuccess(body, entry);
-    } else if (resp.status === 422 || resp.status === 413) {
-      markStep('step-upload', 'fail');
-      markStep('step-audio', '');
-      renderClientError(body, resp.status, entry);
-    } else if (body.service === 'audio-engine') {
-      markStep('step-upload', 'ok');
-      markStep('step-audio', 'fail');
-      markStep('step-orch', '');
-      renderUpstreamError(body, resp.status, entry);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({ error: 'reponse_non_json' }));
+      entry.body = body;
+      entry.elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+      handleHttpError(resp.status, body, entry);
+    } else if (streaming) {
+      await consumeStream(resp, entry, t0);
     } else {
+      const body = await resp.json().catch(() => ({ error: 'reponse_non_json' }));
+      entry.body = body;
+      entry.ok = true;
+      entry.elapsed = ((performance.now() - t0) / 1000).toFixed(2);
       markStep('step-upload', 'ok');
+      markStep('step-orch', 'ok');
       markStep('step-audio', 'ok');
-      markStep('step-orch', 'fail');
-      renderUpstreamError(body, resp.status, entry);
+      renderSuccess(body, entry);
     }
   } catch (err) {
     entry.status = 0;
@@ -413,11 +467,105 @@ submitBtn.addEventListener('click', async () => {
     renderNetworkError(err, base);
   } finally {
     submitBtn.disabled = false;
-    btnLabel.textContent = 'Envoyer à /analyze_pcg';
+    btnLabel.textContent = sendLabel();
     history.unshift(entry);
     renderHistory();
   }
 });
+
+// ---------- Streaming SSE ----------
+// EventSource ne gère pas les POST : on lit le flux à la main avec fetch + ReadableStream.
+async function* readSse(resp) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    let sep;
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      let event = 'message';
+      const data = [];
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+      }
+      if (!data.length) continue;
+      try { yield { event, data: JSON.parse(data.join('\n')) }; } catch { /* événement tronqué : ignoré */ }
+    }
+  }
+}
+
+const AGENTS = ['AudioAgent', 'KnowledgeRAGAgent', 'ReasoningLLMAgent'];
+
+async function consumeStream(resp, entry, t0) {
+  markStep('step-upload', 'ok');
+  const agentState = Object.fromEntries(AGENTS.map((a) => [a, { status: 'pending', extra: '' }]));
+  let text = '';
+  let tokens = 0;
+  let firstTokenAt = null;
+
+  const draw = () => {
+    const agentsHtml = AGENTS.map((a) => {
+      const s = agentState[a];
+      const icon = s.status === 'done' ? '✓' : s.status === 'running' ? '<span class="spinner" style="width:10px;height:10px;border-color:#7c8aa555;border-top-color:var(--accent)"></span>' : '·';
+      return `<div class="agent ${s.status}"><span class="st">${icon}</span>${a}<span class="extra">${escapeHtml(s.extra)}</span></div>`;
+    }).join('');
+    resultZone.innerHTML = `
+      <div class="banner ok">
+        <span class="icon">📡</span>
+        <div class="msg"><b>Flux SSE en cours…</b><span>request-id ${escapeHtml(entry.requestId)}</span></div>
+      </div>
+      <div class="agents">${agentsHtml}</div>
+      <div class="stream-text">${escapeHtml(text)}<span class="caret"></span></div>
+      <div class="stream-meta">${tokens} tokens${firstTokenAt ? ` · premier token à ${firstTokenAt}s` : ''}</div>`;
+  };
+  draw();
+
+  for await (const { event, data } of readSse(resp)) {
+    if (event === 'step') {
+      agentState[data.agent] = agentState[data.agent] || { status: 'pending', extra: '' };
+      agentState[data.agent].status = data.status;
+      if (data.agent === 'AudioAgent' && data.status === 'done') {
+        markStep('step-audio', 'ok');
+        if (data.predicted_class) agentState.AudioAgent.extra = `→ ${data.predicted_class}`;
+      }
+      if (data.sources) agentState[data.agent].extra = `→ ${data.sources.length} source(s)`;
+      draw();
+    } else if (event === 'token') {
+      if (firstTokenAt === null) firstTokenAt = ((performance.now() - t0) / 1000).toFixed(2);
+      text += data.text || '';
+      tokens += 1;
+      draw();
+    } else if (event === 'report') {
+      entry.body = data;
+    } else if (event === 'error') {
+      entry.ok = false;
+      entry.status = data.error === 'gateway_timeout' ? 504 : 502;
+      entry.body = data;
+      markStep('step-orch', 'fail');
+      renderUpstreamError(data, `${entry.status}, en cours de flux`, entry);
+      return;
+    }
+  }
+
+  entry.elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+  if (entry.body) {
+    entry.ok = true;
+    entry.streamInfo = `${tokens} tokens · premier token à ${firstTokenAt ?? '—'}s`;
+    markStep('step-orch', 'ok');
+    markStep('step-audio', 'ok');
+    renderSuccess(entry.body, entry);
+  } else {
+    entry.status = 502;
+    entry.body = { error: 'bad_gateway', detail: 'Flux terminé sans événement "report"' };
+    markStep('step-orch', 'fail');
+    renderUpstreamError(entry.body, entry.status, entry);
+  }
+}
 
 // ---------- Rendu résultat ----------
 function renderSuccess(body, entry) {
@@ -431,7 +579,7 @@ function renderSuccess(body, entry) {
   let html = `
     <div class="banner ok">
       <span class="icon">✅</span>
-      <div class="msg"><b>Rapport reçu</b><span>HTTP ${entry.status} · ${entry.elapsed}s · request-id ${entry.requestId}</span></div>
+      <div class="msg"><b>Rapport reçu${entry.streaming ? ' (streaming SSE)' : ''}</b><span>HTTP ${entry.status} · ${entry.elapsed}s${entry.streamInfo ? ` · ${escapeHtml(entry.streamInfo)}` : ''} · request-id ${escapeHtml(entry.requestId)}</span></div>
     </div>
     <div class="diag-head">
       <span class="diag-badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>

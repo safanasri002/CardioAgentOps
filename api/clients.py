@@ -1,59 +1,118 @@
-from typing import TypeVar
+import json
+from collections.abc import AsyncIterator
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from api.config import Settings
 from api.errors import UpstreamError
-from api.schemas import AnalysisReport, AudioEngineResponse, OrchestratorRequest
+from api.schemas import AnalysisReport
 
-T = TypeVar("T", bound=BaseModel)
+SERVICE = "agent-orchestrator"
 
 
-async def _call(
+def _build_request(
     client: httpx.AsyncClient,
-    service: str,
     url: str,
-    model: type[T],
+    wav: bytes,
+    filename: str,
+    prompt: str | None,
     request_id: str,
-    **kwargs,
-) -> T:
+) -> httpx.Request:
+    data = {"filename": filename}
+    if prompt is not None:
+        data["prompt"] = prompt
+    return client.build_request(
+        "POST",
+        url,
+        headers={"X-Request-ID": request_id},
+        files={"file": (filename, wav, "audio/wav")},
+        data=data,
+    )
+
+
+async def _send(client: httpx.AsyncClient, request: httpx.Request, stream: bool) -> httpx.Response:
     try:
-        resp = await client.post(url, headers={"X-Request-ID": request_id}, **kwargs)
+        resp = await client.send(request, stream=stream)
     except httpx.TimeoutException:
-        raise UpstreamError(service, "Timeout du service", 504)
+        raise UpstreamError(SERVICE, "Timeout du service", 504)
     except httpx.HTTPError as exc:
-        raise UpstreamError(service, f"Service injoignable : {exc.__class__.__name__}")
+        raise UpstreamError(SERVICE, f"Service injoignable : {exc.__class__.__name__}")
 
     if resp.status_code >= 400:
-        raise UpstreamError(service, f"Le service a répondu {resp.status_code}: {resp.text[:200]}")
-    try:
-        return model.model_validate(resp.json())
-    except (ValueError, ValidationError):
-        raise UpstreamError(service, "Réponse invalide du service")
-
-
-async def call_audio_engine(
-    client: httpx.AsyncClient, settings: Settings, wav: bytes, filename: str, request_id: str
-) -> AudioEngineResponse:
-    return await _call(
-        client,
-        "audio-engine",
-        settings.audio_engine_url.rstrip("/") + settings.audio_engine_path,
-        AudioEngineResponse,
-        request_id,
-        files={"file": (filename, wav, "audio/wav")},
-    )
+        text = (await resp.aread()).decode(errors="replace")
+        await resp.aclose()
+        raise UpstreamError(SERVICE, f"Le service a répondu {resp.status_code}: {text[:200]}")
+    return resp
 
 
 async def call_orchestrator(
-    client: httpx.AsyncClient, settings: Settings, payload: OrchestratorRequest, request_id: str
+    client: httpx.AsyncClient,
+    settings: Settings,
+    wav: bytes,
+    filename: str,
+    prompt: str | None,
+    request_id: str,
 ) -> AnalysisReport:
-    return await _call(
-        client,
-        "agent-orchestrator",
-        settings.agent_orchestrator_url.rstrip("/") + settings.orchestrator_path,
-        AnalysisReport,
-        request_id,
-        json=payload.model_dump(),
-    )
+    """Envoie le .wav et le prompt au Service 4 et attend le rapport complet (JSON).
+
+    C'est l'AudioAgent du Service 4 qui appelle ensuite le Service 3 (audio-engine).
+    """
+    url = settings.agent_orchestrator_url.rstrip("/") + settings.orchestrator_path
+    resp = await _send(client, _build_request(client, url, wav, filename, prompt, request_id), stream=False)
+    try:
+        return AnalysisReport.model_validate(resp.json())
+    except (ValueError, ValidationError):
+        raise UpstreamError(SERVICE, "Réponse invalide du service")
+
+
+async def open_orchestrator_stream(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    wav: bytes,
+    filename: str,
+    prompt: str | None,
+    request_id: str,
+) -> httpx.Response:
+    """Ouvre le flux SSE du Service 4.
+
+    Les erreurs de connexion et les statuts HTTP d'erreur sont levés ici, avant que la
+    réponse au client ne commence : la gateway peut encore renvoyer un 502/504 JSON classique.
+    """
+    url = settings.agent_orchestrator_url.rstrip("/") + settings.orchestrator_stream_path
+    resp = await _send(client, _build_request(client, url, wav, filename, prompt, request_id), stream=True)
+    if not resp.headers.get("content-type", "").startswith("text/event-stream"):
+        await resp.aclose()
+        raise UpstreamError(SERVICE, "Réponse invalide du service : flux text/event-stream attendu")
+    return resp
+
+
+def sse_event(event: str, data: dict) -> bytes:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
+
+
+async def relay_sse(resp: httpx.Response) -> AsyncIterator[bytes]:
+    """Relaie tel quel le flux SSE du Service 4.
+
+    Si le flux est coupé en cours de route, le statut HTTP 200 est déjà parti : l'erreur
+    est donc signalée au client par un dernier événement `error`.
+    """
+    last = b"\n\n"
+    try:
+        async for chunk in resp.aiter_raw():
+            last = chunk
+            yield chunk
+    except httpx.HTTPError as exc:
+        timeout = isinstance(exc, httpx.TimeoutException)
+        if not last.endswith(b"\n\n"):
+            yield b"\n\n"  # termine proprement l'événement coupé avant d'envoyer l'erreur
+        yield sse_event(
+            "error",
+            {
+                "error": "gateway_timeout" if timeout else "bad_gateway",
+                "service": SERVICE,
+                "detail": "Timeout du service" if timeout else f"Flux interrompu : {exc.__class__.__name__}",
+            },
+        )
+    finally:
+        await resp.aclose()

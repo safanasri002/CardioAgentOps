@@ -21,6 +21,15 @@ class InvalidUpload(Exception):
         self.status_code = status_code
 
 
+class GuardrailViolation(Exception):
+    """Prompt utilisateur refusé par les guardrails (422)."""
+
+    def __init__(self, reason: str, detail: str):
+        super().__init__(detail)
+        self.reason = reason
+        self.detail = detail
+
+
 async def upstream_error_handler(_: Request, exc: UpstreamError) -> JSONResponse:
     error = "gateway_timeout" if exc.status_code == 504 else "bad_gateway"
     return JSONResponse(
@@ -33,4 +42,11 @@ async def invalid_upload_handler(_: Request, exc: InvalidUpload) -> JSONResponse
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": "invalid_upload", "detail": exc.detail},
+    )
+
+
+async def guardrail_violation_handler(_: Request, exc: GuardrailViolation) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"error": "guardrail_violation", "reason": exc.reason, "detail": exc.detail},
     )
