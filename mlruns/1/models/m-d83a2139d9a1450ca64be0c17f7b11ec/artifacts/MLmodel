@@ -1,0 +1,24 @@
+artifact_path: file:C:/Users/chakh/Documents/CardioAgentOps/mlruns/1/models/m-d83a2139d9a1450ca64be0c17f7b11ec/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+    python_version: 3.13.7
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.1
+    skops_trusted_types:
+    - sklearn.tree._tree.Tree
+mlflow_version: 3.17.1
+model_id: m-d83a2139d9a1450ca64be0c17f7b11ec
+model_size_bytes: 36252
+model_uuid: m-d83a2139d9a1450ca64be0c17f7b11ec
+prompts: null
+run_id: 7d94f14f3fe34ad3b872e0b2e4fbc3cd
+utc_time_created: '2026-10-17 19:50:12.002363'
