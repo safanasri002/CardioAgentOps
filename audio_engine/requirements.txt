@@ -1,0 +1,11 @@
+numpy
+librosa
+scikit-learn
+mlflow
+joblib
+soundfile
+onnx
+skl2onnx
+onnxruntime
+torch
+torchvision
