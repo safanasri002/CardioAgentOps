@@ -7,7 +7,14 @@ services:
     ports:
       - "8000:8000"
     networks: [docker-network]
-    # depends_on: [audio-engine, agent-orchestrator]  # à activer avec les services 3 et 4
+
+  audio-engine:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.audio-engine
+    ports:
+      - "8003:8003"
+    networks: [docker-network]
 
 networks:
   docker-network:
