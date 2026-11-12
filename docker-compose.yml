@@ -1,0 +1,34 @@
+services:
+  # Service 3 — audio-engine : .wav -> normal / abnormal (modèle ONNX)
+  audio-engine:
+    build: ./audio-engine
+    container_name: audio-engine
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  # Service 5 — api-gateway : point d'entrée, guardrails, page web
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      AUDIO_ENGINE_URL: http://audio-engine:8001
+      AGENT_URL: http://agent-orchestrator:8002
+    depends_on:
+      - audio-engine
+    restart: unless-stopped
+
+  # Service 6 — mlflow-server : suivi des expériences + registre des modèles
+  mlflow-server:
+    build: ./mlflow-server
+    container_name: mlflow-server
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    restart: unless-stopped
+
+volumes:
+  mlflow-data:
