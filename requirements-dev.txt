@@ -1,5 +1,0 @@
--r api/requirements.txt
-pytest>=8
-pytest-asyncio>=0.23
-pytest-cov>=5
-respx>=0.21
