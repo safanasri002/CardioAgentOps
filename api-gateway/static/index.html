@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CardioAgent-Ops</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(135deg, #fdf2f4, #eef2ff);
+      min-height: 100vh;
+      display: flex; justify-content: center; align-items: center;
+      padding: 16px; color: #1f2937;
+    }
+    .card {
+      background: white; width: 100%; max-width: 480px;
+      padding: 32px; border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+    }
+    h1 { font-size: 24px; text-align: center; }
+    .subtitle { text-align: center; color: #6b7280; margin: 6px 0 24px; font-size: 14px; }
+
+    /* Zone de dépôt du fichier */
+    .drop {
+      display: block; border: 2px dashed #f9a8b4; border-radius: 14px;
+      padding: 32px; text-align: center; cursor: pointer; transition: 0.2s;
+    }
+    .drop:hover { background: #fff1f3; }
+    .drop input { display: none; }
+    .drop .icon { font-size: 36px; }
+    .drop .name { margin-top: 8px; color: #6b7280; font-size: 14px; }
+
+    button {
+      width: 100%; margin-top: 16px; padding: 14px; border: none; border-radius: 12px;
+      background: #e11d48; color: white; font-size: 16px; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { background: #fda4af; cursor: wait; }
+
+    /* Résultat */
+    .result { margin-top: 24px; display: none; }
+    .badge { display: inline-block; padding: 6px 14px; border-radius: 99px; font-weight: 600; }
+    .normal { background: #dcfce7; color: #166534; }
+    .abnormal { background: #fee2e2; color: #991b1b; }
+    .bar { height: 10px; background: #f3f4f6; border-radius: 99px; margin: 12px 0; overflow: hidden; }
+    .bar div { height: 100%; background: #e11d48; transition: width 0.6s; }
+    .text { line-height: 1.5; margin-top: 12px; }
+    .disclaimer { margin-top: 16px; font-size: 12px; color: #6b7280; font-style: italic; }
+    .error { margin-top: 16px; color: #b91c1c; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🫀 CardioAgent-Ops</h1>
+    <p class="subtitle">Analyse d'un son cardiaque (.wav) par IA</p>
+
+    <label class="drop">
+      <input type="file" id="file" accept=".wav">
+      <div class="icon">🎧</div>
+      <div>Clique pour choisir un fichier .wav</div>
+      <div class="name" id="name">Aucun fichier</div>
+    </label>
+
+    <button id="btn">Analyser</button>
+    <p class="error" id="error"></p>
+
+    <div class="result" id="result">
+      <span class="badge" id="label"></span>
+      <div class="bar"><div id="bar"></div></div>
+      <small id="confidence"></small>
+      <p class="text" id="text"></p>
+      <p class="disclaimer" id="disclaimer"></p>
+    </div>
+  </div>
+
+  <script>
+    const file = document.getElementById("file");
+    const btn = document.getElementById("btn");
+
+    // Afficher le nom du fichier choisi
+    file.onchange = () => document.getElementById("name").textContent = file.files[0]?.name || "Aucun fichier";
+
+    btn.onclick = async () => {
+      if (!file.files[0]) return;
+      btn.disabled = true; btn.textContent = "Analyse en cours...";
+      document.getElementById("error").textContent = "";
+      document.getElementById("result").style.display = "none";
+
+      // Envoyer le fichier à l'API
+      const form = new FormData();
+      form.append("file", file.files[0]);
+      const res = await fetch("/analyze_pcg", { method: "POST", body: form });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById("error").textContent = data.detail;
+      } else {
+        // Afficher le rapport
+        const r = data.report;
+        const label = document.getElementById("label");
+        label.textContent = r.label === "normal" ? "✅ Normal" : "⚠️ Anomalie détectée";
+        label.className = "badge " + r.label;
+        document.getElementById("bar").style.width = r.confidence * 100 + "%";
+        document.getElementById("confidence").textContent = "Confiance : " + Math.round(r.confidence * 100) + " %";
+        document.getElementById("text").textContent = r.text;
+        document.getElementById("disclaimer").textContent = r.disclaimer;
+        document.getElementById("result").style.display = "block";
+      }
+      btn.disabled = false; btn.textContent = "Analyser";
+    };
+  </script>
+</body>
+</html>
