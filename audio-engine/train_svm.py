@@ -1,48 +1,28 @@
-"""Entraîner le SVM avec plusieurs hyperparamètres -> chaque essai est sauvegardé dans MLflow.
+"""Entraîner le SVM en K-Fold (3 folds) avec plusieurs hyperparamètres -> chaque essai est sauvegardé dans MLflow.
 
     python train_svm.py
-    mlflow ui            # puis ouvrir http://localhost:5000
+    mlflow ui --backend-store-uri sqlite:///mlflow.db     # puis ouvrir http://localhost:5000
 """
 import joblib
-import mlflow
-import numpy as np
-from sklearn.metrics import accuracy_score, f1_score, recall_score
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-# 1. Charger les caractéristiques (calculées une seule fois sur Kaggle)
-data = np.load("data/features.npz")
-X, y = data["X"], data["y"]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+from kfold import train_with_kfold
 
-# 2. Les hyperparamètres à tester
+# Les hyperparamètres à tester
 C_values = [0.1, 1, 10]          # C petit = modèle simple, C grand = colle plus aux données
 gamma_values = ["scale", 0.01]   # largeur du noyau RBF
 
-mlflow.set_experiment("cardio-audio")
+# Le scaler est DANS le pipeline -> il est ré-appris sur chaque fold (pas de fuite de données)
+candidates = [
+    (f"SVM_C{C}_g{gamma}", {"C": C, "gamma": gamma},
+     make_pipeline(StandardScaler(),
+                   SVC(kernel="rbf", C=C, gamma=gamma, class_weight="balanced", probability=True)))
+    for C in C_values for gamma in gamma_values
+]
 
-best_recall, best_model = 0, None
-for C in C_values:
-    for gamma in gamma_values:
-        # 3. Un "run" MLflow = un essai
-        with mlflow.start_run(run_name=f"SVM_C{C}_g{gamma}"):
-            model = make_pipeline(StandardScaler(),
-                                  SVC(kernel="rbf", C=C, gamma=gamma, class_weight="balanced", probability=True))
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-
-            recall = recall_score(y_test, y_pred)   # % de pathologiques détectés (critère du PDF)
-            mlflow.log_params({"model": "SVM", "C": C, "gamma": gamma})
-            mlflow.log_metrics({"recall_abnormal": recall,
-                                "accuracy": accuracy_score(y_test, y_pred),
-                                "f1": f1_score(y_test, y_pred)})
-            print(f"C={C:<4} gamma={gamma:<6} recall={recall:.3f}")
-
-            # 4. Garder le meilleur
-            if recall > best_recall:
-                best_recall, best_model = recall, model
-
-joblib.dump(best_model, "data/svm.joblib")
-print(f"\nMeilleur recall = {best_recall:.3f} -> sauvegardé dans data/svm.joblib")
+# On récupère les 3 modèles du meilleur candidat (un par fold) -> ils voteront en inférence
+fold_models = train_with_kfold("SVM", candidates)
+joblib.dump(fold_models, "data/svm_folds.joblib")
+print(f"-> {len(fold_models)} modèles sauvegardés dans data/svm_folds.joblib (puis : python export_onnx.py)")

@@ -1,6 +1,6 @@
 """Tests de l'audio-engine : modèle ML (ONNX) + serveur FastAPI.
 
-    pytest tests/test_audio.py -v
+    cd audio-engine && pytest tests -v
 """
 import io
 import os
@@ -14,8 +14,8 @@ import pytest
 from sklearn.metrics import recall_score
 from sklearn.model_selection import train_test_split
 
-AUDIO_DIR = Path(__file__).resolve().parent.parent / "audio-engine"
-os.chdir(AUDIO_DIR)                 # le serveur charge "data/cardio_model.onnx" en chemin relatif
+AUDIO_DIR = Path(__file__).resolve().parent.parent        # audio-engine/
+os.chdir(AUDIO_DIR)                 # le serveur charge "data/cardio_model_*.onnx" en chemin relatif
 sys.path.insert(0, str(AUDIO_DIR))
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -38,8 +38,17 @@ def test_split():
 
 
 @pytest.fixture(scope="module")
-def session():
-    return ort.InferenceSession("data/cardio_model.onnx")
+def sessions():
+    """Les 3 modèles du K-Fold (un par fold) qui votent."""
+    paths = sorted(Path("data").glob("cardio_model_*.onnx"))
+    assert len(paths) == 3, "lancer python export_onnx.py"
+    return [ort.InferenceSession(str(p)) for p in paths]
+
+
+def hard_vote(sessions, X):
+    """Hard vote : chaque modèle donne un label 0/1, au moins 2 sur 3 -> anormal."""
+    votes = np.array([s.run(None, {s.get_inputs()[0].name: X})[0] for s in sessions])
+    return (votes.sum(axis=0) > len(sessions) / 2).astype(int)
 
 
 def make_wav(seconds=5.0, sr=4000):
@@ -56,31 +65,34 @@ def make_wav(seconds=5.0, sr=4000):
     return buf.getvalue()
 
 
-def test_onnx_input_shape(session):
-    assert session.get_inputs()[0].shape[1] == 40
+def test_onnx_input_shape(sessions):
+    for session in sessions:
+        assert session.get_inputs()[0].shape[1] == 40
 
 
-def test_recall_abnormal(session, test_split):
-    """Critère principal : détecter au moins 85 % des sons pathologiques."""
+def test_recall_abnormal(sessions, test_split):
+    """Critère principal : le VOTE des 3 modèles détecte au moins 85 % des sons pathologiques."""
     X, y = test_split
-    labels, _ = session.run(None, {session.get_inputs()[0].name: X})
-    assert recall_score(y, labels) >= 0.85
+    assert recall_score(y, hard_vote(sessions, X)) >= 0.85
 
 
-def test_probas_valides(session, test_split):
+def test_probas_valides(sessions, test_split):
     X, _ = test_split
-    _, probas = session.run(None, {session.get_inputs()[0].name: X})
-    assert probas.shape == (len(X), 2)
-    assert np.all((probas >= 0) & (probas <= 1))
-    assert np.allclose(probas.sum(axis=1), 1, atol=1e-4)
+    for session in sessions:
+        _, probas = session.run(None, {session.get_inputs()[0].name: X})
+        assert probas.shape == (len(X), 2)
+        assert np.all((probas >= 0) & (probas <= 1))
+        assert np.allclose(probas.sum(axis=1), 1, atol=1e-4)
 
 
-def test_onnx_identique_sklearn(session, test_split):
+def test_onnx_identique_sklearn(sessions, test_split):
+    """Chaque ONNX donne les mêmes labels que son modèle scikit-learn (même ordre : fold 1, 2, 3)."""
     joblib = pytest.importorskip("joblib")
     X, _ = test_split
-    model = joblib.load("data/svm.joblib")
-    labels, _ = session.run(None, {session.get_inputs()[0].name: X})
-    assert (labels == model.predict(X)).mean() >= 0.99
+    models = joblib.load("data/svm_folds.joblib")
+    for session, model in zip(sessions, models):
+        labels, _ = session.run(None, {session.get_inputs()[0].name: X})
+        assert (labels == model.predict(X)).mean() >= 0.99
 
 
 def test_preprocess_donne_40_features():
@@ -98,7 +110,7 @@ def test_preprocess_son_court():
 
 def test_health():
     r = client.get("/health")
-    assert r.status_code == 200 and r.json() == {"status": "ok"}
+    assert r.status_code == 200 and r.json() == {"status": "ok", "n_models": 3}
 
 
 def test_predict_wav():
@@ -106,6 +118,9 @@ def test_predict_wav():
     assert r.status_code == 200
     body = r.json()
     assert body["label"] in ("normal", "abnormal")
+    assert body["votes_abnormal"] in ("0/3", "1/3", "2/3", "3/3")
+    # hard vote : le label vient UNIQUEMENT du nombre de votes
+    assert (body["label"] == "abnormal") == (int(body["votes_abnormal"][0]) >= 2)
     assert 0 <= body["prob_abnormal"] <= 1
 
 

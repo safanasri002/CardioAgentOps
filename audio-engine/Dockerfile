@@ -5,9 +5,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 2. Copier le code + le modèle ONNX (pas besoin de features.npz ni svm.joblib)
+# 2. Copier le code + les 3 modèles ONNX qui votent (pas besoin de features.npz ni svm_folds.joblib)
 COPY server.py prepare_data.py ./
-COPY data/cardio_model.onnx data/
+COPY data/cardio_model_*.onnx data/
 
 # 3. Lancer le serveur
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
