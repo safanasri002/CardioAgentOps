@@ -1,0 +1,68 @@
+# Service 3 — audio-engine : tests modèles ONNX + serveur, puis image Docker
+name: audio-engine
+
+on:
+  push:
+    branches: [main]
+    paths: ["audio-engine/**", ".github/workflows/audio-engine.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["audio-engine/**", ".github/workflows/audio-engine.yml"]
+
+defaults:
+  run:
+    working-directory: audio-engine
+
+jobs:
+  # ---------- CI : tests unitaires ----------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"          # même version que le Dockerfile
+          cache: pip
+          cache-dependency-path: audio-engine/requirements*.txt
+      - name: Installer les dépendances
+        run: pip install -r requirements-dev.txt
+      - name: Tests
+        run: pytest tests -v
+
+  # ---------- CD : build -> smoke test /health -> push ghcr.io (seulement sur main) ----------
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/audio-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+
+      - name: Smoke test (le conteneur démarre et répond sur /health)
+        run: |
+          docker run -d --name svc -p 8001:8001 $IMAGE:${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8001/health; then echo; echo "OK"; exit 0; fi
+            sleep 2
+          done
+          echo "Le service ne répond pas :"; docker logs svc; exit 1
+
+      - name: Login ghcr.io
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest

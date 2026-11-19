@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest
+joblib
+# même version que celle qui a entraîné svm_folds.joblib
+scikit-learn==1.8.0
